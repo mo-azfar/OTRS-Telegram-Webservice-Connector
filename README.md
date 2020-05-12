@@ -50,8 +50,11 @@
 
 11. To test the connection to telegram,
 
-	shell > curl -X GET https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getMe
-	
+	shell > curl -X GET https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getMe   
+
+
+Simulation
+
 [![download-3.png](https://i.postimg.cc/QMpYjcLf/download-3.png)](https://postimg.cc/kVgvc6gS)
 
 [![download-2.png](https://i.postimg.cc/gkTTsYqH/download-2.png)](https://postimg.cc/nCq2cfWX)
