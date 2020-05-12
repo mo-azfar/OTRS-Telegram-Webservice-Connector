@@ -2,6 +2,7 @@
 - Built for OTRS CE v6.0  
 - This module enable the integration from Telegram users (agent) to OTRS.  
 - by conversation with a bot, agent can get a list of their ticket, add note, etc.  
+- **Available upon request**
 
 1. Create a telegram bot and get a bot token
 
