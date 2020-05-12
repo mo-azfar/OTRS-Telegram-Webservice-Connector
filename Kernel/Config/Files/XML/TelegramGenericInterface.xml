@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<otrs_config version="2.0" init="Config">
+    <Setting Name="GenericInterface::Operation::Module###Telegram::TicketTelegram" Required="0" Valid="1">
+        <Description Translatable="1">GenericInterface module registration for the operation layer.</Description>
+        <Navigation>GenericInterface::Operation::ModuleRegistration</Navigation>
+        <Value>
+            <Hash>
+                <Item Key="Name">TicketTelegram</Item>
+                <Item Key="Controller">TicketTelegram</Item>
+                <Item Key="ConfigDialog">AdminGenericInterfaceOperationDefault</Item>
+            </Hash>
+        </Value>
+    </Setting>
+    <Setting Name="GenericInterface::Operation::TicketTelegram###ChatIDField" Required="0" Valid="1">
+        <Description Translatable="1">Defines the field that hold the RocketChat username for Agent (for incoming TicketTelegram Generic Interface)</Description>
+        <Navigation>GenericInterface::Operation::TicketTelegram</Navigation>
+        <Value>
+            <Item ValueType="String" ValueRegex="">UserComment</Item>
+        </Value>
+    </Setting>
+    <Setting Name="GenericInterface::Operation::TicketTelegram###Token" Required="0" Valid="1">
+        <Description Translatable="1">Defines the token value that will be send by telegram outgoing webhook (for incoming TicketTelegram Generic Interface)</Description>
+        <Navigation>GenericInterface::Operation::TicketTelegram</Navigation>
+        <Value>
+            <Item ValueType="String" ValueRegex="">TELEGRAM_BOT_HERE</Item>
+        </Value>
+    </Setting>
+</otrs_config>
