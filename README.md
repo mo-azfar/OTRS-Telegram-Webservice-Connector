@@ -37,7 +37,7 @@
 	start the conversation with the created bot (no 1) to get the chat id with the command /chatid
 
 
-9. Based on connector, otrs will listen to /<command>/<ticketnumber> from telegram.
+9. Based on connector, otrs will listen to /command/ticketnumber from telegram.
 
 	example to get ticket details: /get/1100068
 
