@@ -1,4 +1,4 @@
-# OTRS-Telegram-Generic-Interfaces-Webservice-Connector  
+# OTRS-Telegram-Webservice-Connector  
 - Built for OTRS CE v6.0  
 - This module enable the integration from Telegram users (agent) to OTRS.  
 - by conversation with a bot, agent can get a list of their ticket, add note, etc.  
