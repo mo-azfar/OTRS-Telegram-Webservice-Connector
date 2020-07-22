@@ -15,8 +15,9 @@
 
 
 4. In OTRS, Go to Webservice (REST), Add operation Telegram::TicketTelegram  
-
-
+  
+	Name: TicketTelegram  
+  
 5. Configure REST Network Trasnport  
 
   	*Route mapping for Operation 'TicketTelegram': /TicketTelegram/  
