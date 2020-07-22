@@ -12,7 +12,7 @@
         </Value>
     </Setting>
     <Setting Name="GenericInterface::Operation::TicketTelegram###ChatIDField" Required="0" Valid="1">
-        <Description Translatable="1">Defines the field that hold the RocketChat username for Agent (for incoming TicketTelegram Generic Interface)</Description>
+        <Description Translatable="1">Defines the field that hold the Telegram ChatID for Agent (for incoming TicketTelegram Generic Interface)</Description>
         <Navigation>GenericInterface::Operation::TicketTelegram</Navigation>
         <Value>
             <Item ValueType="String" ValueRegex="">UserComment</Item>
