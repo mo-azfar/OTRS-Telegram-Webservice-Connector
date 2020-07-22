@@ -2,9 +2,8 @@
 - Built for OTRS CE v6.0  
 - This module enable the integration from Telegram users (as an agent) to OTRS.  
 - by conversation with a bot, agent can get a list of their ticket, add note, etc.  
-- **Available upon request**
 
-		Used CPAN module
+		Used CPAN module :
 		
 		Encode qw(decode encode);
 		Digest::MD5 qw(md5_hex);
@@ -29,43 +28,43 @@
 
 4. In OTRS, Go to Webservice (REST), Add operation Telegram::TicketTelegram  
   
-	Name: TicketTelegram  
+		Name: TicketTelegram  
   
 5. Configure REST Network Trasnport  
 
-  	*Route mapping for Operation 'TicketTelegram': /TicketTelegram/  
-  	*Method: POST  
+		*Route mapping for Operation 'TicketTelegram': /TicketTelegram/  
+		*Method: POST  
 
 
 6. Update System Configuration > GenericInterface::Operation::TicketTelegram###ChatIDField  
 
-  	Field name that hold the telegram chat id for agent. Default: UserComment  
+		Field name that hold the telegram chat id for agent. Default: UserComment  
 
 
 7. Update System Configuration > GenericInterface::Operation::TicketTelegram###Token  
 
-  	Update the token (get from no 1).  
+		Update the token (get from no 1).  
 
 
 8. Make sure OTRS agent has a telegram chat id under their profile ( UserComment field )
 
-	start the conversation with the created bot (no 1) to get the chat id with the command /chatid
+		start the conversation with the created bot (no 1) to get the chat id with the command /chatid
 
 
 9. Based on connector, otrs will listen to /command/ticketnumber from telegram.
 
-	example to get ticket details: /get/1100068
+		example to get ticket details: /get/1100068
 
 
 10. Rules check
 
-	- Telegram chat id must be registered in the OTRS agent profile.
-	- Only ip address from telegram server are allowed to use this connector.
+		- Telegram chat id must be registered in the OTRS agent profile.
+		- Only ip address from telegram server are allowed to use this connector.
 
 
 11. To test the connection to telegram,
 
-	shell > curl -X GET https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getMe   
+		shell > curl -X GET https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getMe   
 
 
 Simulation
