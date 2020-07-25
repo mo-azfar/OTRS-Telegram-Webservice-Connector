@@ -19,7 +19,6 @@ use utf8;
 use Encode qw(decode encode);
 use Digest::MD5 qw(md5_hex);
 use Date::Parse;
-use Data::Dumper;
 
 our $ObjectManagerDisabled = 1;
 
@@ -48,6 +47,7 @@ sub new {
 sub Run {
     my ( $Self, %Param ) = @_;
 
+    my $CacheObject = $Kernel::OM->Get('Kernel::System::Cache');
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
     my $LayoutObject = $Kernel::OM->Get('Kernel::Output::HTML::Layout');
     my $ConfigObject = $Kernel::OM->Get('Kernel::Config');
@@ -99,227 +99,421 @@ sub Run {
         );
     }
     
-    my $Text = $Param{Data}->{message}->{text};
+    my $CacheType = "TelegramUser";
+    my $GreetText = "Please Use The Menu Below";
+    my $AddNoteText = "Please enter a note for this case";
     
-    #text format should be /command/ticketnumber e.g: /get/123
-    my @getCommand = split '/', $Text;
-    my $command = $getCommand[1];
-    my $tn = $getCommand[2];
-    my $note = $getCommand[3];
-    
-    #verify command
-    my $cmd = $Self->ValidateCommand(
-        Command => $command,
-    );
-    
-    if ( !$cmd )
+    #if using text command
+    if ( defined $Param{Data}->{message} ) 
     {
-        #TODO:since the list of command can be set and view in telegram, perhaps return error instead of sending telegram if not command
-        #sent telegram
-        my $Sent = $Self->SentMessage(
-            ChatID => $Param{Data}->{message}->{chat}->{id},
-            MsgID => $Param{Data}->{message}->{message_id},
-            Text => "Command $command invalid. Type /help for info",
-        );
-    
-        return {
-            Success => 1,
-            Data    => {
-                text => $Sent,
-            },
-        };
-    }
-   
-    if ( $cmd eq "help")
-    {
-        
-        #sent telegram
-        my $Sent = $Self->SentMessage(
-            ChatID => $Param{Data}->{message}->{chat}->{id},
-            MsgID => $Param{Data}->{message}->{message_id},
-            Text => "Format */command/ticketnumber* . Available command as below: \n
-*/chatid* = To get your chat id\n
-*/mine* = To get all the ticket assigned under you\n
-*/get/ticketnumber* = To get the details of specific ticket\n
-*/addnote/ticketnumber* = To add a note to the specific ticket\n\n
-",
-);
-        
-        return {
-            Success => 1,
-            Data    => {
-                text => $Sent,
-            },
-        };
-    }
-    
-    if ( $cmd eq "chatid")
-    {
-        #sent telegram
-        my $Sent = $Self->SentMessage(
-            ChatID => $Param{Data}->{message}->{chat}->{id},
-            MsgID => $Param{Data}->{message}->{message_id},
-            Text => "Your chat id is $Param{Data}->{message}->{chat}->{id}",
+        #verify telegram user agent based on chat id
+        my $AgentID = $Self->ValidateTelegramUser(
+            User => $Param{Data}->{message}->{chat}->{id},
         );
         
-        return {
-            Success => 1,
-            Data    => {
-                text => $Sent,
-            },
-        };
-    }
+        if ( !$AgentID ) 
+        {
+            
+            my @KeyboardData = ();
+            
+            #sent telegram
+            my $Sent = $Self->SentMessage(
+                ChatID => $Param{Data}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{message}->{message_id},
+                Text => "Opps. Your ChatID $Param{Data}->{message}->{chat}->{id} is not registered as our agent.",
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0,
+            );
+        
+            return {
+                Success => 1,
+                Data    => {
+                    text => $Sent,
+                },
+            };
+        }
+        
+        my $CacheKeyTicketID = "TelegramUserTicketID-$Param{Data}->{message}->{chat}->{id}";
+        my $CacheKeyTicketNumber = "TelegramUserTicketNumber-$Param{Data}->{message}->{chat}->{id}";
+        my $CacheKeyMine = "TelegramUsermine-$Param{Data}->{message}->{chat}->{id}";
+        my $Text = $Param{Data}->{message}->{text};
+        my $ReplyToText = $Param{Data}->{message}->{reply_to_message}->{text} || 0;
+        
+        #check either this is replied text for add note param
+        if ( $ReplyToText eq $AddNoteText )
+        {
+            #get back ticket id via cache
+            my $TicketID = $CacheObject->Get(
+                Type => $CacheType,
+                Key  => $CacheKeyTicketID,
+            ) || '';
+            
+            #get back ticket number via cache
+            my $TicketNumber = $CacheObject->Get(
+                Type => $CacheType,
+                Key  => $CacheKeyTicketNumber,
+            ) || '';
+            
+            #ticket id cache is found
+            if ($TicketID)
+            {
+                
+                my $AddNoteResult = $Self->AddNote(
+                    TicketID => $TicketID,
+                    AgentID => $AgentID,
+                    Body => $Text,
+                );
+                
+                #get back previous mine selection via cache or set default to menu if empty
+                my $PrevMine = $CacheObject->Get(
+                Type => $CacheType,
+                Key  => $CacheKeyMine,
+                ) || '/menu';
+                
+                my @KeyboardData = (
+                [{ 
+                    text => "Menu", 
+                    callback_data => "/menu",
+                },
+                { 
+                    text => "Go Back To List", 
+                    callback_data => "$PrevMine",
+                }]
+                );
+                
+                #sent telegram
+                my $Sent = $Self->SentMessage(
+                    ChatID =>$Param{Data}->{message}->{chat}->{id},
+                    MsgID => $Param{Data}->{message}->{message_id},
+                    Text => "Add Note to Ticket Number <b>OTRS#$TicketNumber ($TicketID):</b> 
+$AddNoteResult",
+                    Keyboard => \@KeyboardData, #dynamic keyboard
+                    Force => \0, 
+                    Selective => \0, 
+                );
+                
+                return {
+                    Success => 1,
+                    Data    => {
+                        text => $Sent,
+                    },
+                };
+            }
+            
+            else
+            {
+                
+                my @KeyboardData = (
+                [{ 
+                    text => "Get WIP Ticket", 
+                    callback_data => "/mine/wip",
+                },
+                { 
+                    text => "Get Resolved Ticket", 
+                    callback_data => "/mine/closed",
+                }]
+                );
+                
+                #sent telegram
+                my $Sent = $Self->SentMessage(
+                    ChatID =>$Param{Data}->{message}->{chat}->{id},
+                    MsgID => $Param{Data}->{message}->{message_id},
+                    Text => "Oooops..timeout. Please try again",
+                    Keyboard => \@KeyboardData, #dynamic keyboard
+                    Force => \0, 
+                    Selective => \0, 
+                );
+                
+                return {
+                    Success => 1,
+                    Data    => {
+                        text => $Sent,
+                    },
+                };
+            }
+            
+        }
+        
+        else
+        {
+        
+            my @KeyboardData = (
+            [{ 
+				text => "Get WIP Ticket", 
+				callback_data => "/mine/wip",
+			},
+            { 
+				text => "Get Resolved Ticket", 
+				callback_data => "/mine/closed",
+			}]
+            );
+                
+            #sent telegram
+            my $Sent = $Self->SentMessage(
+                ChatID =>$Param{Data}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{message}->{message_id},
+                Text => $GreetText,
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0, 
+            );
+            
+            return {
+                Success => 1,
+                Data    => {
+                    text => $Sent,
+                },
+            };
+        }
+        
+    } #end if using text command
     
-    #verify telegram user based on chat id
-    #this placement allow non registered chat id (in otrs) user to execute chatid and help command.
-    my $AgentID = $Self->ValidateTelegramUser(
-        User => $Param{Data}->{message}->{chat}->{id},
-    );
-    
-    if ( !$AgentID ) {
-        return $Self->ReturnError (
-            ErrorCode    => 'Telegram.NoUser',
-            ErrorMessage => "Telegram: No Telegram Chat ID $Param{Data}->{message}->{chat}->{id} Defined in OTRS!",
-        );
-    }
-    
-    if ( $cmd eq "mine")
+    #if using callback button from SentMessageKeyboard
+    elsif ( defined $Param{Data}->{callback_query} ) 
     {
-   
-       #check owner ticket
-       my $TicketOwnerText = $Self->MyOwner(
-       AgentID => $AgentID,
-       );
-   
-       #check responsible ticket
-       my $TicketResponsibleText = $Self->MyResponsible(
-       AgentID => $AgentID,
-       );
        
-        #sent telegram
-        my $Sent = $Self->SentMessage(
-            ChatID => $Param{Data}->{message}->{chat}->{id},
-            MsgID => $Param{Data}->{message}->{message_id},
-            Text => "
-$TicketOwnerText
-               
-$TicketResponsibleText",
+        #verify telegram user agent based on chat id
+        my $AgentID = $Self->ValidateTelegramUser(
+            User => $Param{Data}->{callback_query}->{message}->{chat}->{id},
         );
         
-       return 
-       {
-           Success => 1,
-           Data    => 
-           {
-               text => $Sent,
-           },
-       };
-   
-   }
-	
-    my $TicketID = $TicketObject->TicketIDLookup( TicketNumber => $tn, );
-    my $ImageURL = "http://icons.iconarchive.com/icons/artua/star-wars/256/Clone-Trooper-icon.png";
-    
-    if ( $cmd eq "get")
-    {
-        if ($TicketID) 
+        if ( !$AgentID ) 
         {
             
-            my %getTicket = $Self->GetTicket(
-                TicketID => $TicketID,
-                UserID   => $AgentID,
-            ); 
+            my @KeyboardData = ();
             
             #sent telegram
             my $Sent = $Self->SentMessage(
-                ChatID => $Param{Data}->{message}->{chat}->{id},
-                MsgID => $Param{Data}->{message}->{message_id},
-                Text => "OTRS#$getTicket{TicketNumber}
-$getTicket{GetText}
-                    
-$getTicket{TicketURL}",
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text => "Opps. Your ChatID $Param{Data}->{callback_query}->{message}->{chat}->{id} is not registered as our agent.",
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0,
             );
-            
-            return 
-            {
+        
+            return {
                 Success => 1,
-                Data    => 
-                {
-                    text => $Sent,
-                },
-            };
-        }
-        else
-        {
-            
-            #sent telegram
-            my $Sent = $Self->SentMessage(
-                ChatID => $Param{Data}->{message}->{chat}->{id},
-                MsgID => $Param{Data}->{message}->{message_id},
-                Text => "Error: Requested Ticket#$tn Not Found",
-            );
-            
-            return 
-            {
-                Success => 1,
-                Data    => 
-                {
-                    text => $Sent,
-                },
-            };
-        }
-    
-    }
-      
-    if ( $cmd eq "addnote" )
-    {
-        if ( $TicketID && $note ne "" )
-        {
-            my $AddNote = $Self->AddNote(
-                TicketID => $TicketID,
-                AgentID => $AgentID,
-                Body => $note,
-            );
-            
-            #sent telegram
-            my $Sent = $Self->SentMessage(
-                ChatID => $Param{Data}->{message}->{chat}->{id},
-                MsgID => $Param{Data}->{message}->{message_id},
-                Text => $AddNote,
-            );
-            
-            return 
-            {
-                Success => 1,
-                Data    => 
-                {
-                    text => $Sent,
-                },
-            };
-            
-        }
-        else
-        {
-            
-            #sent telegram
-            my $Sent = $Self->SentMessage(
-                ChatID => $Param{Data}->{message}->{chat}->{id},
-                MsgID => $Param{Data}->{message}->{message_id},
-                Text => "Error: Requested Ticket#$tn Not Found or Note is Empty",
-            );
-            
-            return 
-            {
-                Success => 1,
-                Data    => 
-                {
+                Data    => {
                     text => $Sent,
                 },
             };
         }
         
-    }
-    
+        my $CacheKeyMine = "TelegramUsermine-$Param{Data}->{callback_query}->{message}->{chat}->{id}";
+        my $CacheKeyTicketID = "TelegramUserTicketID-$Param{Data}->{callback_query}->{message}->{chat}->{id}";
+        my $CacheKeyTicketNumber = "TelegramUserTicketNumber-$Param{Data}->{callback_query}->{message}->{chat}->{id}";
+         
+        #menu
+        if ($Param{Data}->{callback_query}->{data} eq "/menu")
+        {
+            my @KeyboardData = (
+            [{ 
+				text => "Get WIP Ticket", 
+				callback_data => "/mine/wip",
+			},
+            { 
+				text => "Get Resolved Ticket", 
+				callback_data => "/mine/closed",
+			}]
+            );
+                
+            #sent telegram
+            my $Sent = $Self->SentMessage(
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text => $GreetText,
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0, 
+            );
+            
+            return {
+                Success => 1,
+                Data    => {
+                    text => $Sent,
+                },
+            };
+        }
+        
+        ##check ticket
+        elsif ($Param{Data}->{callback_query}->{data} eq "/mine/wip" || $Param{Data}->{callback_query}->{data} eq "/mine/closed")
+        {
+           
+            my @PossibleStateType = ();
+            my $SelectedCMD;
+            
+            if ($Param{Data}->{callback_query}->{data} eq "/mine/wip")
+            {
+                @PossibleStateType = ('new', 'open', 'pending reminder', 'pending auto'); 
+                $SelectedCMD = "<b>Work in Progress Case</b>";
+            }
+            elsif ($Param{Data}->{callback_query}->{data} eq "/mine/closed")
+            {
+                @PossibleStateType = ('closed'); 
+                $SelectedCMD = "<b>Resolved Case</b>";
+            }
+            
+            #delete cache if exist (for selected mine button)
+            $CacheObject->Delete(
+                Type => $CacheType,       # only [a-zA-Z0-9_] chars usable
+                Key  => $CacheKeyMine,
+            );
+            
+            #create cache for selected mine button
+            $CacheObject->Set(
+                Type  => $CacheType,
+                Key   => $CacheKeyMine,
+                Value => $Param{Data}->{callback_query}->{data} || '',
+                TTL   => 10 * 60, #set cache (means cache for 10 minutes)
+            );
+            
+            #check total ticket
+            my @TotalKeyboard = $Self->MyTicket(
+                AgentID => $AgentID,
+                Condition => \@PossibleStateType,
+            );
+            
+            #sent telegram
+            my $Sent = $Self->SentMessage(
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text =>  $SelectedCMD,
+                Keyboard => \@TotalKeyboard, #dynamic keyboard list based of number of ticket (ticket id, ticket number) found in api above.
+                Force => \0, 
+                Selective => \0,
+            );
+            
+        
+            return {
+                Success => 1,
+                Data    => {
+                    text => "$Sent",
+                },
+            };
+        }
+        
+        #check ticket details
+        elsif ($Param{Data}->{callback_query}->{data} =~ "^/get/")
+        {
+        
+            my @gettid = split '/', $Param{Data}->{callback_query}->{data};
+            my $tid = $gettid[2];
+            
+            #get ticket details
+            my ($getTicket, $TN) = $Self->GetTicket(
+                TicketID => $tid,
+                AgentID => $AgentID,
+            );
+            
+            #get back previous mine selection via cache or set default to menu if empty
+            my $PrevMine = $CacheObject->Get(
+                Type => $CacheType,
+                Key  => $CacheKeyMine,
+            ) || '/menu';
+        
+            my @KeyboardData = (
+            [{ 
+				text => "Add Note", 
+				callback_data => "/addnote/$tid/$TN",
+			}],
+            [{ 
+				text => "Menu", 
+				callback_data => "/menu",
+			},
+            { 
+				text => "Go back To List", 
+				callback_data => "$PrevMine",
+			}],
+            );
+            
+            #sent telegram
+            my $Sent = $Self->SentMessage(
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text => $getTicket,
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0,
+            );
+        
+            return {
+                Success => 1,
+                Data    => {
+                    text => $Sent,
+                },
+            };
+        }
+        
+        #add note
+        elsif ($Param{Data}->{callback_query}->{data} =~ "^/addnote/")
+        {
+        
+            my @gettid = split '/', $Param{Data}->{callback_query}->{data};
+            my $tid = $gettid[2];
+            my $tn = $gettid[3];
+            
+            #delete tid cache if exist
+            my $DeleteCache1 = $CacheObject->Delete(
+                Type => $CacheType,       # only [a-zA-Z0-9_] chars usable
+                Key  => $CacheKeyTicketID,
+            );
+            
+            #delete tn cache if exist
+            my $DeleteCache2 = $CacheObject->Delete(
+                Type => $CacheType,       # only [a-zA-Z0-9_] chars usable
+                Key  => $CacheKeyTicketNumber,
+            );
+            
+            #create cache for ticket id
+            my $SetCache1 = $CacheObject->Set(
+                Type  => $CacheType,
+                Key   => $CacheKeyTicketID,
+                Value => $tid || '',
+                TTL   => 5 * 60, #set cache (means cache for 5 minutes)
+            );
+        
+            #create cache for ticket number
+            my $SetCache2 = $CacheObject->Set(
+                Type  => $CacheType,
+                Key   => $CacheKeyTicketNumber,
+                Value => $tn|| '',
+                TTL   => 5 * 60, #set cache (means cache for 5 minutes)
+            );
+        
+            my @KeyboardData = ();
+            
+            #sent message after cache is set
+            my $Sent1 = $Self->SentMessage(
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text => "Adding Note for <b>OTRS#$tn</b>..Processing Input Field..",
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \0, 
+                Selective => \0, 
+            );
+            
+            #sent message after cache is set
+            my $Sent2 = $Self->SentMessage(
+                ChatID => $Param{Data}->{callback_query}->{message}->{chat}->{id},
+                MsgID => $Param{Data}->{callback_query}->{message}->{message_id},
+                Text => $AddNoteText,
+                Keyboard => \@KeyboardData, #dynamic keyboard
+                Force => \1, 
+                Selective => \1, 
+            );
+            
+            return {
+                Success => 1,
+                Data    => {
+                    text => "$Sent1 $Sent2",
+                },
+            }; 
+            
+        }
+  
+    } #end if using callback button from SentMessageKeyboard
     
 }
 

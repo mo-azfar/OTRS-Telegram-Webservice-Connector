@@ -78,29 +78,105 @@ sub ValidateTelegramUser {
     }
     
     return $AgentID;
-    
 } 
 
-sub ValidateCommand {
+sub MyTicket {
     my ( $Self, %Param ) = @_;
 
+    my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
+    my $ConfigObject = $Kernel::OM->Get('Kernel::Config');
+     
     # check needed stuff
-    return if !$Param{Command};
+    return if !$Param{AgentID};
+    return if !$Param{Condition};
     
-    if ( $Param{Command} ne "chatid" && $Param{Command} ne "get" && $Param{Command} ne "help" && $Param{Command} ne "mine" && $Param{Command} ne "addnote")
+    my $HttpType = $ConfigObject->Get('HttpType');
+	my $FQDN = $ConfigObject->Get('FQDN');
+	my $ScriptAlias = $ConfigObject->Get('ScriptAlias');
+    
+    my @OwnerTicketIDs = $TicketObject->TicketSearch(
+        Result => 'ARRAY',
+        StateType    => \@{$Param{Condition}},
+        OwnerIDs => [$Param{AgentID}],
+        UserID => 1,
+        );
+        
+    #use for telegram dynamic keyboard
+    my @TicketData = ();
+    
+    if (@OwnerTicketIDs)
     {
-        return;
+        foreach my $OwnTicketID (@OwnerTicketIDs)
+        {
+            my %OwnTicket = $TicketObject->TicketGet(
+            TicketID      => $OwnTicketID,
+            DynamicFields => 0,         
+            UserID        => 1,
+            Silent        => 0,         
+            );
+            
+            my $TicketURL = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID='.$OwnTicketID;
+            
+            #use for telegram dynamic keyboard
+            push @TicketData, [{ 
+				text => "[O] Ticket#$OwnTicket{TicketNumber}", 
+				callback_data => "/get/$OwnTicketID",
+			},
+            { 
+				text => "Portal", 
+                url => $TicketURL,
+			}];
+            
+        }
     }
     
-    return $Param{Command};
+    my @ResponsibleTicketIDs = $TicketObject->TicketSearch(
+        Result => 'ARRAY',
+        StateType    => \@{$Param{Condition}},
+        ResponsibleIDs => [$Param{AgentID}],
+        UserID => 1,
+    );
     
-} 
+    if (@ResponsibleTicketIDs)
+    {
+        foreach my $ResponsibleTicketID (@ResponsibleTicketIDs)
+        {
+            my %ResponsibleTicket = $TicketObject->TicketGet(
+            TicketID      => $ResponsibleTicketID,
+            DynamicFields => 0,         
+            UserID        => 1,
+            Silent        => 0,         
+            );
+            
+            my $TicketURL = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID='.$ResponsibleTicketID;
+            
+            #use for telegram dynamic keyboard
+            push @TicketData, [{ 
+				text => "[R] Ticket#$ResponsibleTicket{TicketNumber}", 
+				callback_data => "/get/$ResponsibleTicketID",
+			},
+            { 
+				text => "Portal", 
+                url => $TicketURL,
+			}];
+        }
+    }
+    
+    push @TicketData, [{ 
+        text => "Menu", 
+        callback_data => "/menu",
+        }];
+    
+    return @TicketData;
+    
+}
 
 sub GetTicket {
     my ( $Self, %Param ) = @_;
 
     # check needed stuff
     return if !$Param{TicketID};
+    return if !$Param{AgentID};
     
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
     my $ConfigObject = $Kernel::OM->Get('Kernel::Config');
@@ -109,26 +185,23 @@ sub GetTicket {
 	my $FQDN = $ConfigObject->Get('FQDN');
 	my $ScriptAlias = $ConfigObject->Get('ScriptAlias');
     
-    my %NoAccess;
+    ##Check permission just in case user no longer an owner or resposible (by clicking previous ticket menu)
     my $Access = $TicketObject->TicketPermission(
         Type     => 'ro',
         TicketID => $Param{TicketID},
-        UserID   => $Param{UserID},
+        UserID   => $Param{AgentID},
     );
-        
+    
     if ( !$Access ) 
     {
-            $NoAccess{GetText} = "Error: Need RO Permissions";
-            $NoAccess{TicketURL} = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID=0';
-            $NoAccess{TicketNumber} = "No Permission";
-            return %NoAccess;
-    
+        my $NoAccess = "Error: Need RO Permissions";
+        return $NoAccess;
     }
     
     my %Ticket = $TicketObject->TicketGet(
         TicketID      => $Param{TicketID},
         DynamicFields => 0,         
-        UserID        => 1,
+        UserID        => $Param{AgentID},
         Silent        => 0,         
     );
     
@@ -140,115 +213,26 @@ sub GetTicket {
         UserID => $Ticket{ResponsibleID},
     );
     
-    my $GetText = "
-    - *Type*: $Ticket{Type}
-    - *Created*: $Ticket{Created}
-    - *State*: $Ticket{State} 
-    - *Queue*: $Ticket{Queue}
-    - *Owner*: $OwnerName{UserFullname}
-    - *Resposible*: $RespName{UserFullname}
-    - *Priority*: $Ticket{Priority}
-    - *Service*: $Ticket{Service}
-    - *SLA*: $Ticket{SLA}";
-
-    my $TicketURL = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID='.$Param{TicketID};
-    $Ticket{GetText} = $GetText;
-    $Ticket{TicketURL} = $TicketURL;
-    return %Ticket;
+    my $GetText = "<b>OTRS#$Ticket{TicketNumber}</b>
+    
+    - <b>Type</b>: $Ticket{Type}
+    - <b>Created</b>: $Ticket{Created}
+    - <b>State</b>: $Ticket{State} 
+    - <b>Queue</b>: $Ticket{Queue}
+    - <b>Owner</b>: $OwnerName{UserFullname}
+    - <b>Resposible</b>: $RespName{UserFullname}
+    - <b>Priority</b>: $Ticket{Priority}
+    - <b>Service</b>: $Ticket{Service}
+    - <b>SLA</b>: $Ticket{SLA}";
+    
+    #if push back to ticket api, make sure the request is hash %.
+    #$Ticket{GetText} = $GetText;
+  
+    return ($GetText, $Ticket{TicketNumber});
     
 } 
 
-sub MyOwner {
-    my ( $Self, %Param ) = @_;
-
-    my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
-    my $ConfigObject = $Kernel::OM->Get('Kernel::Config');
-     
-    # check needed stuff
-    return if !$Param{AgentID};
-    
-    my $HttpType = $ConfigObject->Get('HttpType');
-	my $FQDN = $ConfigObject->Get('FQDN');
-	my $ScriptAlias = $ConfigObject->Get('ScriptAlias');
-    
-    my @OwnerTicketIDs = $TicketObject->TicketSearch(
-        Result => 'ARRAY',
-        StateType    => ['open', 'new', 'pending reminder', 'pending auto'],
-        OwnerIDs => [$Param{AgentID}],
-        UserID => 1,
-        );
-        
-    my $OwnerText;
-    if (@OwnerTicketIDs)
-    {
-        $OwnerText = "Ticket Owner Under Your Account: \n\n";
-        foreach my $OwnTicketID (@OwnerTicketIDs)
-        {
-            my %OwnTicket = $TicketObject->TicketGet(
-            TicketID      => $OwnTicketID,
-            DynamicFields => 0,         
-            UserID        => 1,
-            Silent        => 0,         
-            );
-            my $TicketURL = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID='.$OwnTicketID;
-            $OwnerText .= "[Ticket#$OwnTicket{TicketNumber}]($TicketURL) - $OwnTicket{Title}\n";
-            
-        }
-    }
-    else
-    {
-        $OwnerText = "No Ticket Owner Assigned To You";
-    }
-    
-    return $OwnerText;
-    
-} 
-
-sub MyResponsible {
-    my ( $Self, %Param ) = @_;
-
-    my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
-    my $ConfigObject = $Kernel::OM->Get('Kernel::Config');
-    
-    # check needed stuff
-    return if !$Param{AgentID};
-    
-    my $HttpType = $ConfigObject->Get('HttpType');
-	my $FQDN = $ConfigObject->Get('FQDN');
-	my $ScriptAlias = $ConfigObject->Get('ScriptAlias');
-    
-    my @ResponsibleTicketIDs = $TicketObject->TicketSearch(
-        Result => 'ARRAY',
-        StateType    => ['open', 'new', 'pending reminder', 'pending auto'],
-        ResponsibleIDs => [$Param{AgentID}],
-        UserID => 1,
-        );
-        
-    my $ResponsibleText;
-    if (@ResponsibleTicketIDs)
-    {
-        $ResponsibleText = "Ticket Responsible Under Your Account: \n\n";
-        foreach my $ResponsibleTicketID (@ResponsibleTicketIDs)
-        {
-            my %ResponsibleTicket = $TicketObject->TicketGet(
-            TicketID      => $ResponsibleTicketID,
-            DynamicFields => 0,         
-            UserID        => 1,
-            Silent        => 0,         
-            );
-            my $TicketURL = $HttpType.'://'.$FQDN.'/'.$ScriptAlias.'index.pl?Action=AgentTicketZoom;TicketID='.$ResponsibleTicketID;
-            $ResponsibleText .= "[Ticket#$ResponsibleTicket{TicketNumber}]($TicketURL) - $ResponsibleTicket{Title}\n";
-        }
-    }
-    else
-    {
-        $ResponsibleText = "No Ticket Responsible Assigned To You";
-    
-    }
-    
-    return $ResponsibleText;
-} 
-
+ 
 sub AddNote {
     my ( $Self, %Param ) = @_;
     
@@ -260,15 +244,17 @@ sub AddNote {
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
     my $ArticleBackendObject = $Kernel::OM->Get('Kernel::System::Ticket::Article')->BackendForChannel(ChannelName => 'Internal');
     
+    ##Check permission just in case user no longer an owner or resposible (by clicking previous ticket menu)
     my $Access = $TicketObject->TicketPermission(
         Type     => 'note',
         TicketID => $Param{TicketID},
         UserID   => $Param{AgentID},
-        );
+    );
     
     if ( !$Access ) 
     {
-        return "Error: Need Note Permissions";
+        my $NoAccess = "Error: Need Note Permissions";
+        return $NoAccess;
     }
             
     my %FullName =  $Kernel::OM->Get('Kernel::System::User')->GetUserData(
@@ -315,9 +301,15 @@ sub SentMessage {
     my $ua = LWP::UserAgent->new;
     my $p = {
             chat_id => $Param{ChatID},
-            parse_mode => 'Markdown',
-            reply_to_message_id => $Param{MsgID},
-            text => $Param{Text}, 
+            parse_mode => 'HTML',
+            #reply_to_message_id => $Param{MsgID},
+            text => $Param{Text},
+            reply_markup => {
+				#resize_keyboard => \1, # \1 = true when JSONified, \0 = false
+                inline_keyboard => \@{$Param{Keyboard}}, #telegram dynamic keyboard
+                force_reply => $Param{Force},
+                selective => $Param{Selective}
+				}
             };
             
     my $response = $ua->request(
@@ -344,4 +336,5 @@ sub SentMessage {
     return $msg;
     
 }
+    
 1;
